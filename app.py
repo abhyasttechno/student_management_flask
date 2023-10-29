@@ -7,7 +7,7 @@ import os
 from forms import StudentForm,MarksForm,FeesForm,LoginForm,RegisterForm,ForgotForm,ResetForm
 from send_mail_smtp import send_reset_token_email
 from models import db,Student,LoginUser,Marks,Fees,pwd_context
-
+from functools import wraps
 
 #initialization flask app
 app = Flask(__name__)
@@ -20,6 +20,25 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
     
+def requires_admin(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if session.get('user_status') != 'Admin':
+            flash("You do not have permission to access this page.")
+            return redirect(url_for('home'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def requires_teacher(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if session.get('user_status') != 'Teacher':
+            flash("You do not have permission to access this page.")
+            return redirect(url_for('home'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 
 @app.route('/')
@@ -44,16 +63,137 @@ def home():
     return render_template("home.html")
 
 @app.route('/add_fees')
+@requires_admin
 def add_fees():
     form = FeesForm()
     return render_template("add_fees.html",form=form)
 
 @app.route('/edit_student')
+@requires_admin
 def edit_student():
     form = StudentForm()
 
     students = Student.query.all()
     return render_template("edit_student.html",form=form,payload=students)
+
+
+@app.route('/student_report')
+def student_report():
+    students = Student.query.all()
+    return render_template("student_report.html",payload=students)
+
+@app.route('/marks_report')
+def marks_report():
+    marks = Marks.query.all()
+    return render_template("marks_report.html",payload=marks)
+
+
+
+@app.route('/fee_report')
+def fee_report():
+    fees = Fees.query.all()
+    return render_template("fee_report.html",payload=fees)
+
+
+
+@app.route('/edit_marks')
+@requires_teacher
+def edit_marks():
+    form = MarksForm()
+
+    markings = Marks.query.all()
+    return render_template("edit_marks.html",form=form,payload=markings)
+
+
+@app.route('/edit_fees')
+@requires_admin
+def edit_fees():
+    form = FeesForm()
+
+    fees = Fees.query.all()
+    return render_template("edit_fees.html",form=form,payload=fees)
+
+
+@app.route('/edit_stud_fees', methods=['GET', 'POST'])
+def edit_stud_fees():
+    form = FeesForm()
+
+    if request.method == "POST":
+        print("Form is validated")  # Debugging
+
+        reg_num = request.form['regNumber']
+        print(f"Registration number from form: {reg_num}")  # Debugging
+
+        # Retrieve the student record based on regNumber
+        fee = Fees.query.filter_by(reg_no=reg_num).first()
+
+        if fee:
+            print("Fees found")  # Debugging
+
+            # Update the student attributes
+            fee.receipt_no = form.receipt_no.data
+            fee.class_name = form.class_name.data
+            fee.amount = form.amount.data
+            fee.dt_deposit = form.dt_deposit.data
+            fee.bank = form.bank.data
+            fee.fee_reason = form.fee_reason.data
+            
+
+            # Commit the changes to the database
+            try:
+                db.session.commit()
+                print("Database updated successfully")  # Debugging
+            except Exception as e:
+                print(f"Error updating database: {e}")  # Debugging
+
+        else:
+            print("Fees not found")  # Debugging
+
+    fee = Fees.query.all()
+    return render_template("edit_fees.html", form=form, payload=fee)
+
+
+
+
+
+
+@app.route('/edit_stud_marks', methods=['GET', 'POST'])
+def edit_stud_marks():
+    form = MarksForm()
+
+    if request.method == "POST":
+        print("Form is validated")  # Debugging
+
+        reg_num = request.form['regNumber']
+        print(f"Registration number from form: {reg_num}")  # Debugging
+
+        # Retrieve the student record based on regNumber
+        mark = Marks.query.filter_by(reg_no=reg_num).first()
+
+        if mark:
+            print("Student found")  # Debugging
+
+            # Update the student attributes
+            mark.exam_name = form.exam_name.data
+            mark.language = form.language.data
+            mark.english = form.english.data
+            mark.maths = form.maths.data
+            mark.science = form.science.data
+            mark.remarks = form.remarks.data
+            
+
+            # Commit the changes to the database
+            try:
+                db.session.commit()
+                print("Database updated successfully")  # Debugging
+            except Exception as e:
+                print(f"Error updating database: {e}")  # Debugging
+
+        else:
+            print("Marks not found")  # Debugging
+
+    marks = Marks.query.all()
+    return render_template("edit_student.html", form=form, payload=marks)
 
 
 @app.route('/edit_stud_details', methods=['GET', 'POST'])
@@ -95,6 +235,37 @@ def edit_stud_details():
     students = Student.query.all()
     return render_template("edit_student.html", form=form, payload=students)
 
+@app.route('/delete_fees', methods=['POST'])
+def delete_fees():
+    reg_num = request.form['regNumber']
+    fee = Fees.query.filter_by(reg_no=reg_num).first()
+
+    if fee:
+        db.session.delete(fee)
+        db.session.commit()
+        flash('Fees deleted successfully!', 'success')
+    else:
+        flash('Fee not found!', 'danger')
+    
+    return redirect(url_for('edit_fees'))
+
+
+@app.route('/delete_mark', methods=['POST'])
+def delete_mark():
+    reg_num = request.form['regNumber']
+    mark = Marks.query.filter_by(reg_no=reg_num).first()
+
+    if mark:
+        db.session.delete(mark)
+        db.session.commit()
+        flash('Mark deleted successfully!', 'success')
+    else:
+        flash('Mark not found!', 'danger')
+    
+    return redirect(url_for('edit_marks'))
+
+
+
 @app.route('/delete_student', methods=['POST'])
 def delete_student():
     reg_num = request.form['regNumber']
@@ -107,7 +278,7 @@ def delete_student():
     else:
         flash('Student not found!', 'danger')
     
-    return redirect(url_for('edit_stud_details'))
+    return redirect(url_for('edit_student'))
 
 
    
@@ -208,6 +379,7 @@ def login_validation():
             if pwd_context.verify(password, user.pass_word):
                 session.permanent = True
                 session['user_id'] = user.email
+                session['user_status'] = user.user_status
 
                 return render_template("home.html")
             else:
@@ -265,7 +437,9 @@ def add_user():
 
 
 
+
 @app.route('/add_student')
+@requires_admin
 def add_student():
     form = StudentForm()
     max_reg_no = db.session.query(db.func.coalesce(db.func.max(Student.reg_no), 0)).scalar()
@@ -362,6 +536,7 @@ def insert_marks():
 
 
 @app.route('/add_marks')
+@requires_teacher
 def add_marks():
     form = MarksForm()
     return render_template("add_marks.html", form=form)
